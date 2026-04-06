@@ -22,3 +22,5 @@ pub-cert.pem
 *.sealed.tmp
 infra/terraform/tfplan
 cluster.env
+.claude/
+.anisable/
