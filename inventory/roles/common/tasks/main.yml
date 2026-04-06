@@ -1,0 +1,166 @@
+---
+# roles/common/tasks/main.yml
+# Baseline configuration applied to every node in the cluster.
+
+# ── Package installation ───────────────────────────────────────────────────────
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - qemu-guest-agent
+      - curl
+      - apt-transport-https
+      - gnupg
+      - nftables
+      - open-iscsi # required by Longhorn (iSCSI) and other CSI drivers
+      - nfs-common # required by Longhorn for RWX (NFS-backed) volumes
+      - cifs-utils # required by the CSI SMB driver to mount SMB/CIFS shares
+      - xfsprogs # mkfs.xfs for the Longhorn data disk
+    state: present
+  become: true
+  notify: Restart qemu-guest-agent
+
+# ── Kernel modules ────────────────────────────────────────────────────────────
+
+- name: Ensure kernel module config directory exists
+  ansible.builtin.file:
+    path: /etc/modules-load.d
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Persist kernel modules
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k3s.conf
+    content: |
+      br_netfilter
+      overlay
+      vxlan
+    mode: "0644"
+  become: true
+
+- name: Load kernel modules immediately
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - br_netfilter
+    - overlay
+    - vxlan
+  become: true
+
+# ── sysctl ────────────────────────────────────────────────────────────────────
+
+- name: Configure sysctl parameters for Kubernetes
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-k3s.conf
+    state: present
+    reload: false
+  loop:
+    - { key: "net.ipv4.ip_forward", value: "1" }
+    - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
+    - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+    - { key: "net.bridge.bridge-nf-call-arptables", value: "1" }
+    - { key: "net.netfilter.nf_conntrack_max", value: "1048576" }
+    - { key: "kernel.panic", value: "10" }
+    - { key: "kernel.panic_on_oops", value: "1" }
+    - { key: "vm.overcommit_memory", value: "1" }
+    - { key: "fs.inotify.max_user_watches", value: "524288" }
+    - { key: "fs.inotify.max_user_instances", value: "512" }
+  become: true
+
+# ── Swap ──────────────────────────────────────────────────────────────────────
+
+- name: Disable swap immediately
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+  become: true
+
+- name: Remove swap from /etc/fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\s+swap\s+.*)$'
+    replace: '# \1'
+  become: true
+
+# ── Longhorn data disk setup (workers only) ───────────────────────────────────
+# Formats /dev/vdc as XFS and mounts it at /var/lib/longhorn.
+# Idempotent: skipped if the disk doesn't exist or is already formatted.
+
+- name: Check Longhorn disk exists
+  ansible.builtin.stat:
+    path: /dev/vdc
+  register: longhorn_disk_stat
+  when: inventory_hostname in groups['k3s_workers']
+
+- name: Check if Longhorn disk is already formatted
+  ansible.builtin.command:
+    cmd: blkid /dev/vdc
+  register: longhorn_blkid
+  changed_when: false
+  failed_when: false
+  become: true
+  when:
+    - inventory_hostname in groups['k3s_workers']
+    - longhorn_disk_stat.stat.exists
+
+- name: Format Longhorn disk as XFS
+  ansible.builtin.command:
+    cmd: mkfs.xfs /dev/vdc
+  changed_when: true
+  become: true
+  when:
+    - inventory_hostname in groups['k3s_workers']
+    - longhorn_disk_stat.stat.exists
+    - longhorn_blkid.rc != 0
+
+- name: Get Longhorn disk UUID
+  ansible.builtin.command:
+    cmd: blkid -s UUID -o value /dev/vdc
+  register: longhorn_uuid
+  changed_when: false
+  become: true
+  when:
+    - inventory_hostname in groups['k3s_workers']
+    - longhorn_disk_stat.stat.exists
+
+- name: Create /var/lib/longhorn mount point
+  ansible.builtin.file:
+    path: /var/lib/longhorn
+    state: directory
+    mode: "0755"
+  become: true
+  when: inventory_hostname in groups['k3s_workers']
+
+- name: Mount Longhorn disk at /var/lib/longhorn
+  ansible.posix.mount:
+    path: /var/lib/longhorn
+    src: "UUID={{ longhorn_uuid.stdout }}"
+    fstype: xfs
+    opts: defaults,noatime
+    state: mounted
+  become: true
+  when:
+    - inventory_hostname in groups['k3s_workers']
+    - longhorn_disk_stat.stat.exists
+    - longhorn_uuid.stdout is defined
+    - longhorn_uuid.stdout != ""
+
+# ── /etc/hosts ────────────────────────────────────────────────────────────────
+
+- name: Populate /etc/hosts with cluster node entries
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^{{ item.ipv4 }}\\s"
+    line: "{{ item.ipv4 }}  {{ item.name }}"
+    state: present
+  loop: "{{ cluster_hosts }}"
+  become: true

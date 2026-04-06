@@ -1,0 +1,20 @@
+# CiliumBGPClusterConfig — Cilium BGP Control Plane v2 (Cilium 1.14+).
+# Replaces the deprecated CiliumBGPPeeringPolicy.
+# Selects all nodes and defines the local ASN + upstream peer.
+# Peer behaviour (timers, families, advertisements) lives in CiliumBGPPeerConfig.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumBGPClusterConfig
+metadata:
+  name: cluster-bgp-config
+spec:
+  nodeSelector:
+    matchLabels: {}   # apply to every cluster node
+  bgpInstances:
+    - name: "cluster-instance"
+      localASN: 65000
+      peers:
+        - name: "upstream-router"
+          peerASN: 65000
+          peerAddress: "172.16.10.254"
+          peerConfigRef:
+            name: "bgp-peer-config"

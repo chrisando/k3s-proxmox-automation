@@ -1,0 +1,170 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fluent-bit
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://fluent.github.io/helm-charts
+    chart: fluent-bit
+    targetRevision: "0.*"
+    helm:
+      valuesObject:
+        # Run on every node so any node hosting Spring Boot is covered
+        tolerations:
+          - operator: Exists
+
+        daemonSetVolumes:
+          - name: springboot-logs
+            hostPath:
+              path: /var/logs
+              type: DirectoryOrCreate
+          - name: containers-logs
+            hostPath:
+              path: /var/log/containers
+              type: DirectoryOrCreate
+          - name: pods-logs
+            hostPath:
+              path: /var/log/pods
+              type: DirectoryOrCreate
+
+        daemonSetVolumeMounts:
+          - name: springboot-logs
+            mountPath: /var/logs
+            readOnly: true
+          - name: containers-logs
+            mountPath: /var/log/containers
+            readOnly: true
+          - name: pods-logs
+            mountPath: /var/log/pods
+            readOnly: true
+
+        env:
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+
+        config:
+          service: |
+            [SERVICE]
+                Flush         5
+                Log_Level     info
+                Daemon        off
+                Parsers_File  /fluent-bit/etc/parsers.conf
+                HTTP_Server   On
+                HTTP_Listen   0.0.0.0
+                HTTP_Port     2020
+                storage.metrics on
+
+          inputs: |
+            [INPUT]
+                Name              tail
+                Path              /var/logs/springboot.log
+                Parser            springboot
+                Tag               springboot
+                Refresh_Interval  5
+                Mem_Buf_Limit     10MB
+                Skip_Long_Lines   On
+                DB                /var/log/flb_springboot.db
+                DB.locking        true
+
+            [INPUT]
+                Name              tail
+                Path              /var/log/containers/*.log
+                Parser            cri
+                Tag               kube.*
+                Refresh_Interval  5
+                Mem_Buf_Limit     20MB
+                Skip_Long_Lines   On
+                DB                /var/log/flb_kube.db
+                DB.locking        true
+
+          filters: |
+            [FILTER]
+                Name   record_modifier
+                Match  springboot
+                Record node    ${NODE_NAME}
+                Record job     springboot
+
+            [FILTER]
+                Name                kubernetes
+                Match               kube.*
+                Kube_URL            https://kubernetes.default.svc:443
+                Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+                Merge_Log           On
+                Keep_Log            Off
+                K8S-Logging.Parser  On
+                K8S-Logging.Exclude On
+
+            [FILTER]
+                Name   record_modifier
+                Match  kube.*
+                Record node ${NODE_NAME}
+
+          outputs: |
+            [OUTPUT]
+                Name              loki
+                Match             springboot
+                Host              loki.monitoring.svc.cluster.local
+                Port              3100
+                Labels            job=springboot, node=${NODE_NAME}
+                Label_Keys        $level,$logger
+                Auto_Kubernetes_Labels off
+                Line_Format       json
+                Retry_Limit       5
+
+            [OUTPUT]
+                Name              gelf
+                Match             springboot
+                Host              graylog.graylog.svc.cluster.local
+                Port              12201
+                Mode              tcp
+                Gelf_Short_Message_Key message
+                Retry_Limit       5
+
+            [OUTPUT]
+                Name              gelf
+                Match             kube.*
+                Host              graylog.graylog.svc.cluster.local
+                Port              12201
+                Mode              tcp
+                Gelf_Short_Message_Key log
+                Retry_Limit       5
+
+          customParsers: |
+            [PARSER]
+                Name        springboot
+                Format      regex
+                Regex       ^(?<time>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}[.,]\d{3})\s+(?<level>[A-Z]+)\s+(?<pid>\d+) --- \[(?<thread>[^\]]+)\]\s+(?<logger>\S+)\s+:\s+(?<message>.*)$
+                Time_Key    time
+                Time_Format %Y-%m-%d %H:%M:%S.%L
+                Time_Keep   On
+
+        # Expose /api/v1/metrics/prometheus for kube-prometheus-stack scraping
+        serviceMonitor:
+          enabled: true
+          namespace: monitoring
+          interval: 30s
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

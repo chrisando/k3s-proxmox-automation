@@ -1,0 +1,35 @@
+# CiliumL2AnnouncementPolicy — ARP announcements for LoadBalancer IPs.
+# Complements BGP: BGP advertises routes to the upstream router; L2 announcements
+# let hosts on the same LAN segment reach LoadBalancer VIPs via ARP without
+# needing a BGP-capable router in the path.
+#
+# Applies to all nodes and all LoadBalancer services.
+# Interface regex covers Debian predictable NIC names on Proxmox virtio NICs
+# (ens18, enp6s18, etc.) — adjust if your VMs use a different naming scheme.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: l2-announcement-policy
+spec:
+  # Apply to all cluster nodes
+  nodeSelector:
+    matchLabels: {}
+
+  # Announce all LoadBalancer services
+  serviceSelector:
+    matchLabels: {}
+
+  # Virtio NIC names on Debian 13 cloud-init VMs on Proxmox.
+  # ens* covers slot-based names (ens18, ens19, …)
+  # enp* covers PCI path-based names (enp6s18, …)
+  # eth* covers legacy/simple naming (eth0, eth1, …)
+  interfaces:
+    - ^ens\d+$
+    - ^enp\d+s\d+$
+    - ^eth\d+$
+
+  # Announce LoadBalancer IPs via ARP (IPv4 only)
+  loadBalancerIPs: true
+
+  # Set to true if you also want to announce spec.externalIPs on services
+  externalIPs: true

@@ -1,0 +1,57 @@
+# Cilium Helm values — managed by Ansible, do not edit manually.
+# Generated for Cilium {{ cilium_version }}
+
+# Replace kube-proxy entirely with Cilium's eBPF dataplane
+kubeProxyReplacement: true
+k8sServiceHost: "{{ hostvars[groups['k3s_controller'][0]]['ansible_host'] }}"
+k8sServicePort: "{{ k3s_api_port }}"
+
+# IPv4 only
+ipv4:
+  enabled: true
+ipv6:
+  enabled: false
+
+# IPAM — let Kubernetes manage the pod CIDR assignments (from k3s config)
+ipam:
+  mode: kubernetes
+
+# Native routing (no encapsulation, requires routable pod CIDRs)
+routingMode: native
+autoDirectNodeRoutes: true
+ipv4NativeRoutingCIDR: "{{ cluster_pod_cidr_v4 }}"
+
+# Enable the BGP Control Plane for service load-balancer announcements
+bgpControlPlane:
+  enabled: true
+
+# Enable L2 announcements (ARP) for LoadBalancer IPs on the local segment.
+# Works alongside BGP — BGP reaches the upstream router, L2 handles on-link
+# reachability so nodes on the same LAN can ARP for the VIP directly.
+l2announcements:
+  enabled: true
+
+# Required for L2 announcements — enables the kubeAPIServer rate-limit watcher
+externalIPs:
+  enabled: true
+
+# L2 announcements use Kubernetes leases; raise the API server client rate limit
+# so the operator isn't throttled and lease renewals don't time out.
+k8sClientRateLimit:
+  qps: 50
+  burst: 100
+
+# Hubble observability
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+
+# Enable BPF masquerade (more efficient than iptables)
+bpf:
+  masquerade: true
+
+operator:
+  replicas: 1

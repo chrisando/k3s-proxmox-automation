@@ -1,0 +1,19 @@
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: blobstorage-nas
+  namespace: postgres
+spec:
+  configuration:
+    destinationPath: s3://postgres/
+    endpointURL: "{{ BLOB_STORAGE_ENDPOINT }}"
+    s3Credentials:
+      accessKeyId:
+        name: blobstorage
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: blobstorage
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+  retentionPolicy: "30d"

@@ -1,0 +1,6 @@
+---
+# Variables specific to k3s worker nodes.
+
+# Labels applied to all worker nodes (extend as needed)
+k3s_node_labels:
+  - "node-role.kubernetes.io/worker=true"

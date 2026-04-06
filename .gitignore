@@ -1,0 +1,24 @@
+# Terraform — contains API tokens and sensitive values
+infra/terraform/terraform.tfvars
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.backup
+
+# Ansible — generated backups from setup.sh
+inventory/hosts.yml.bak
+inventory/group_vars/all.yml.bak
+inventory/group_vars/k3s_controller.yml.bak
+
+# gitops backups
+gitops/cilium/values.yaml.bak
+gitops/cilium/config/*.bak
+
+# Misc
+*.retry
+.DS_Store
+pub-cert.pem
+*.bak
+*.sealed.tmp
+infra/terraform/tfplan
+cluster.env

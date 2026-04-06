@@ -1,0 +1,106 @@
+---
+# roles/k3s_server/tasks/main.yml
+# Uses k3sup (run from the Ansible control machine) to install the k3s server.
+# The server config (CIDRs, TLS SANs, flags) is written to the remote node
+# first so k3s picks it up on start; k3sup handles install + kubeconfig fetch.
+
+# ── Ensure k3sup is on the control machine ────────────────────────────────────
+
+- name: Check if k3sup is installed locally
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3sup
+  register: k3sup_binary
+  delegate_to: localhost
+  become: false
+
+- name: Install k3sup on control machine
+  ansible.builtin.shell:
+    cmd: curl -sLS https://get.k3sup.dev | sudo sh
+  when: not k3sup_binary.stat.exists
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+# ── Token management ──────────────────────────────────────────────────────────
+
+- name: Check if k3s token file already exists locally
+  ansible.builtin.stat:
+    path: "~/.k3s_token"
+  register: k3s_token_file
+  delegate_to: localhost
+  become: false
+
+- name: Generate a random k3s cluster token
+  ansible.builtin.set_fact:
+    k3s_token: "{{ lookup('ansible.builtin.password', '/dev/null length=64 chars=ascii_letters,digits') }}"
+  when: not k3s_token_file.stat.exists
+
+- name: Save generated token to local file
+  ansible.builtin.copy:
+    content: "{{ k3s_token }}"
+    dest: "~/.k3s_token"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  when: not k3s_token_file.stat.exists
+
+- name: Read existing token from local file
+  ansible.builtin.set_fact:
+    k3s_token: "{{ lookup('ansible.builtin.file', '~/.k3s_token') | trim }}"
+  when: k3s_token_file.stat.exists
+
+# ── Write server config ───────────────────────────────────────────────────────
+# Written before k3sup install so k3s picks up CIDRs, TLS SANs, and flags on
+# first start. The token is embedded in the config (agents join with it).
+
+- name: Create /etc/rancher/k3s directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Write k3s server config
+  ansible.builtin.template:
+    src: k3s-server-config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  notify: Restart k3s server
+
+# ── Install k3s server via k3sup ──────────────────────────────────────────────
+
+- name: Check if k3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Install k3s server via k3sup
+  ansible.builtin.command:
+    argv:
+      - k3sup
+      - install
+      - "--ip={{ ansible_host }}"
+      - "--user={{ ansible_user }}"
+      - "--ssh-key={{ ansible_ssh_private_key_file }}"
+      - "--k3s-version={{ k3s_version }}"
+      - "--local-path={{ kubeconfig_local_path }}"
+      - "--context=k3s"
+  when: not k3s_binary.stat.exists
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+# ── Fix kubeconfig permissions ────────────────────────────────────────────────
+# k3sup writes the kubeconfig with the correct server IP already set.
+
+- name: Set permissions on local kubeconfig
+  ansible.builtin.file:
+    path: "{{ kubeconfig_local_path }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false

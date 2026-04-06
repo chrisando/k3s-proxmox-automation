@@ -1,0 +1,45 @@
+# Cilium CNI — kube-proxy replacement with eBGP, dual-stack, and Hubble.
+#
+# Bootstrap note: Ansible still does the initial `helm install cilium` so the
+# CNI is up before ArgoCD runs. This Application ADOPTS that Helm release and
+# manages all subsequent upgrades and config changes via GitOps.
+#
+# BGP peering policy and LB IP pool are managed here (gitops/cilium/config/)
+# rather than by Ansible, so Ansible no longer needs to apply those manifests.
+#
+# Uses ArgoCD multi-source:
+#   source 1  — Helm chart from helm.cilium.io
+#   source 2  — values file reference ($values alias → gitops/cilium/values.yaml)
+#   source 3  — raw manifests in gitops/cilium/config/ (BGP policy + LB pool)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://helm.cilium.io/
+      chart: cilium
+      targetRevision: "1.19.1"
+      helm:
+        valueFiles:
+          - $values/gitops/cilium/values.yaml
+    - repoURL: https://git.wagner.org.za/homelab/k3s-ansible.git
+      targetRevision: HEAD
+      ref: values
+    - repoURL: https://git.wagner.org.za/homelab/k3s-ansible.git
+      targetRevision: HEAD
+      path: gitops/cilium/config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true

@@ -1,0 +1,25 @@
+# HTTPRoute — redirects all HTTP traffic to HTTPS (301 permanent redirect).
+# Attaches to the gateway's http listener only.
+# Applies cluster-wide: any HTTP request hitting port 80 gets redirected.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-to-https-redirect
+  namespace: kube-system
+spec:
+  parentRefs:
+    - name: gateway
+      namespace: kube-system
+      sectionName: http
+      kind: Gateway
+      group: gateway.networking.k8s.io
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+      matches:
+        - path:
+            type: PathPrefix
+            value: /

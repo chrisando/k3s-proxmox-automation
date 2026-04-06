@@ -1,0 +1,15 @@
+---
+# Variables specific to the k3s controller node.
+
+# Port the k3s API server listens on
+k3s_api_port: 6443
+
+# Additional SANs for the TLS certificate (add load-balancer VIP or DNS name here)
+k3s_tls_sans:
+  - "172.16.10.1"
+  - "k3s-controller-01"
+  - "api.apps.wagner.org.za"
+  # - "k3s-api.example.com"   # uncomment to add a DNS name
+
+# Path on the local machine where the kubeconfig will be saved
+kubeconfig_local_path: "~/.kube/k3s.yaml"

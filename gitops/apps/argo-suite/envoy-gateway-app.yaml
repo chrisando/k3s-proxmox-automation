@@ -1,0 +1,37 @@
+# Envoy Gateway Application.
+# Gateway API implementation backed by Envoy Proxy.
+# Depends on Gateway API CRDs (sync-wave -1) being present first.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: docker.io/envoyproxy
+    chart: gateway-helm
+    targetRevision: "v1.7.*"
+    helm:
+      values: |
+        config:
+          envoyGateway:
+            gateway:
+              controllerName: gateway.envoyproxy.io/gatewayclass-controller
+            logging:
+              level:
+                default: info
+        deployment:
+          replicas: 3
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: envoy-gateway-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

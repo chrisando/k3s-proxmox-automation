@@ -1,0 +1,28 @@
+# Keycloak CR — deploys a Keycloak instance via the official Keycloak Operator.
+# The operator (keycloak-operator-app, wave 0) must sync first so the Keycloak CRD exists.
+# sync-wave 1 ensures the operator and pgc1 PostgreSQL are ready before this app syncs.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keycloak
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://git.wagner.org.za/homelab/k3s-ansible.git
+    targetRevision: HEAD
+    path: gitops/apps/keycloak-instance
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keycloak
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

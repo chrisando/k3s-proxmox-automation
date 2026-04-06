@@ -1,0 +1,82 @@
+---
+# roles/cilium/tasks/main.yml
+# Bootstrap-only: installs Cilium via Helm so the CNI is up before k3s agents
+# join and before ArgoCD runs.  All subsequent config changes (values, BGP
+# peering policy, LB IP pool) are managed by the cilium ArgoCD Application in
+# gitops/apps/argo-suite/cilium-app.yaml.
+
+# ── Helm installation ─────────────────────────────────────────────────────────
+
+- name: Check if Helm is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/helm
+  register: helm_binary
+
+- name: Download Helm installer
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
+    dest: /tmp/get-helm-3.sh
+    mode: "0755"
+  when: not helm_binary.stat.exists
+
+- name: Install Helm {{ helm_version }}
+  ansible.builtin.command:
+    cmd: /tmp/get-helm-3.sh --version {{ helm_version }}
+  when: not helm_binary.stat.exists
+  become: true
+  changed_when: true
+
+- name: Add Cilium Helm repo
+  ansible.builtin.command:
+    cmd: >
+      helm repo add cilium https://helm.cilium.io
+  become: true
+
+- name: Add Cilium Helm repo
+  kubernetes.core.helm_repository:
+    name: cilium
+    repo_url: "https://helm.cilium.io/"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# ── Render values file ────────────────────────────────────────────────────────
+
+- name: Render Cilium Helm values to controller
+  ansible.builtin.template:
+    src: cilium-values.yaml.j2
+    dest: /tmp/cilium-values.yaml
+    mode: "0644"
+  become: true
+
+# ── Install / upgrade Cilium ──────────────────────────────────────────────────
+
+- name: Install or upgrade Cilium via Helm
+  kubernetes.core.helm:
+    name: cilium
+    chart_ref: cilium/cilium
+    chart_version: "{{ cilium_version }}"
+    release_namespace: "{{ cilium_namespace }}"
+    create_namespace: true
+    values_files:
+      - /tmp/cilium-values.yaml
+    wait: true
+    wait_timeout: "10m"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  become: true
+
+# ── Wait for Cilium to be ready ───────────────────────────────────────────────
+
+- name: Wait for Cilium DaemonSet to be ready
+  ansible.builtin.command:
+    cmd: >
+      k3s kubectl -n {{ cilium_namespace }}
+      rollout status daemonset/cilium --timeout=300s
+  register: cilium_rollout
+  retries: 3
+  delay: 15
+  until: cilium_rollout.rc == 0
+  become: true
+  changed_when: false
+# BGP peering policy and LoadBalancer IP pool are applied by ArgoCD via
+# gitops/cilium/config/ — no Ansible tasks required here.

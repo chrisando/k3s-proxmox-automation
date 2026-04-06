@@ -1,0 +1,33 @@
+# /etc/rancher/k3s/config.yaml — managed by Ansible, do not edit manually.
+
+# Disable the built-in CNI, kube-proxy, and network policy (Cilium replaces them)
+flannel-backend: "none"
+disable-kube-proxy: true
+disable-network-policy: true
+
+# Pod and service CIDRs
+cluster-cidr: "{{ cluster_pod_cidr_v4 }}"
+service-cidr: "{{ cluster_svc_cidr_v4 }}"
+
+# Bind the node on IPv4
+node-ip: "{{ ansible_host }}"
+
+# Advertise the API server address
+advertise-address: "{{ ansible_host }}"
+
+# TLS SANs for the API server certificate
+tls-san:
+{% for san in k3s_tls_sans %}
+  - "{{ san }}"
+{% endfor %}
+
+# Disable built-in components we don't want
+disable:
+  - traefik
+  - servicelb
+
+# Write kubeconfig with world-readable permissions so Ansible can fetch it
+write-kubeconfig-mode: "0644"
+
+# Cluster secret — agents join using this token (k3sup join --token)
+token: "{{ k3s_token }}"

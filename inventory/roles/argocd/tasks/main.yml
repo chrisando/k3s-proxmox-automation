@@ -1,0 +1,142 @@
+---
+# roles/argocd/tasks/main.yml
+#
+# Bootstraps ArgoCD via Helm on the controller, then applies an App-of-Apps
+# Application that points ArgoCD at gitops/apps/argo-suite/ in this repo.
+# ArgoCD then self-manages and deploys Argo Workflows, Rollouts, and Events.
+
+# ── 1. Argo Helm repository ───────────────────────────────────────────────────
+- name: Add Argo Helm repository
+  ansible.builtin.command:
+    cmd: helm repo add argo https://argoproj.github.io/argo-helm
+  register: helm_repo_add
+  changed_when: "'has been added' in helm_repo_add.stdout"
+  failed_when: helm_repo_add.rc != 0 and 'already exists' not in helm_repo_add.stderr
+  become: true
+
+- name: Update Helm repositories
+  ansible.builtin.command:
+    cmd: helm repo update
+  changed_when: false
+  become: true
+
+# ── 2. ArgoCD Helm values ─────────────────────────────────────────────────────
+- name: Render ArgoCD Helm values
+  ansible.builtin.template:
+    src: argocd-values.yaml.j2
+    dest: /tmp/argocd-values.yaml
+    mode: "0600"
+  become: true
+
+# ── 3. Install / upgrade ArgoCD ───────────────────────────────────────────────
+- name: Install or upgrade ArgoCD via Helm
+  ansible.builtin.command:
+    cmd: >
+      helm upgrade --install argocd argo/argo-cd
+      --namespace {{ argocd_namespace }}
+      --create-namespace
+      --version {{ argocd_chart_version }}
+      --values /tmp/argocd-values.yaml
+      --wait
+      --timeout 600s
+  register: argocd_install
+  changed_when: true
+  become: true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# ── 4. Wait for ArgoCD server deployment ─────────────────────────────────────
+- name: Wait for argocd-server deployment to be ready
+  ansible.builtin.command:
+    cmd: >
+      k3s kubectl rollout status deployment/argocd-server
+      --namespace {{ argocd_namespace }}
+      --timeout=300s
+  changed_when: false
+  become: true
+
+# ── 5. Initial admin password ─────────────────────────────────────────────────
+- name: Wait for argocd-initial-admin-secret to exist
+  ansible.builtin.command:
+    cmd: >
+      k3s kubectl get secret argocd-initial-admin-secret
+      --namespace {{ argocd_namespace }}
+      --ignore-not-found
+      -o name
+  register: argocd_secret_check
+  until: argocd_secret_check.stdout != ""
+  retries: 30
+  delay: 10
+  changed_when: false
+  become: true
+
+- name: Read ArgoCD initial admin password
+  ansible.builtin.command:
+    cmd: >
+      k3s kubectl get secret argocd-initial-admin-secret
+      --namespace {{ argocd_namespace }}
+      -o jsonpath='{.data.password}'
+  register: argocd_password_b64
+  changed_when: false
+  become: true
+
+- name: Save ArgoCD admin password to local machine
+  ansible.builtin.copy:
+    content: "{{ argocd_password_b64.stdout | b64decode }}\n"
+    dest: "~/.argocd-admin-password"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+# ── 6. Optional: configure private git repo credentials ───────────────────────
+- name: Configure private git repository secret for ArgoCD
+  ansible.builtin.command:
+    cmd: >
+      k3s kubectl apply --namespace {{ argocd_namespace }} -f -
+  args:
+    stdin: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: gitops-repo-creds
+        namespace: {{ argocd_namespace }}
+        labels:
+          argocd.argoproj.io/secret-type: repository
+      type: Opaque
+      stringData:
+        type: git
+        url: "{{ gitops_repo_url }}"
+        username: "{{ gitops_repo_username }}"
+        password: "{{ gitops_repo_token }}"
+  when:
+    - gitops_repo_username is defined
+    - gitops_repo_token is defined
+  changed_when: true
+  become: true
+
+# ── 7. App-of-Apps bootstrap ─────────────────────────────────────────────────
+- name: Render App-of-Apps Application manifest
+  ansible.builtin.template:
+    src: app-of-apps.yaml.j2
+    dest: /tmp/argocd-app-of-apps.yaml
+    mode: "0600"
+  become: true
+
+- name: Apply App-of-Apps Application to bootstrap the Argo suite
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f /tmp/argocd-app-of-apps.yaml
+  register: app_of_apps_result
+  changed_when: >
+    'created' in app_of_apps_result.stdout or
+    'configured' in app_of_apps_result.stdout
+  become: true
+
+# ── 8. Access instructions ────────────────────────────────────────────────────
+- name: Display ArgoCD access instructions
+  ansible.builtin.debug:
+    msg:
+      - "ArgoCD installed successfully!"
+      - "Admin password: ~/.argocd-admin-password"
+      - "Port-forward UI: kubectl port-forward svc/argocd-server -n {{ argocd_namespace }} 8080:443"
+      - "App-of-Apps result: {{ app_of_apps_result.stdout }}"
+      - "ArgoCD will now sync: Argo Workflows, Rollouts, and Events from {{ gitops_repo_url }}"

@@ -1,0 +1,16 @@
+# CoreDNS custom overrides.
+#
+# All Netbird services now route through the shared Envoy Gateway — their hostnames
+# resolve via the wildcard *.apps.wagner.org.za DNS record and require no static overrides.
+#
+# This ConfigMap is kept in place in case custom overrides are needed in future.
+# k3s CoreDNS imports *.override files from /etc/coredns/custom/ automatically.
+#
+# To force a CoreDNS reload after changes:
+#   kubectl rollout restart deploy/coredns -n kube-system
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data: {}

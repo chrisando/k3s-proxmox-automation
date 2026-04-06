@@ -1,0 +1,77 @@
+# ── Proxmox connection ────────────────────────────────────────────────────────
+# Copy this file to terraform.tfvars and fill in your values.
+
+proxmox_endpoint     = "https://pve.example.com:8006"
+proxmox_api_token    = "root@pam!terraform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+proxmox_insecure     = false          # set true if using a self-signed cert
+proxmox_ssh_username = "root"
+proxmox_node         = "pve"          # Proxmox node name
+
+# ── Template ──────────────────────────────────────────────────────────────────
+# VM ID of your Debian 13 cloud-init template (created by scripts/create-template.sh)
+template_vm_id = 9000
+
+# ── Network ───────────────────────────────────────────────────────────────────
+network_bridge = "vmbr0"
+network_vlan   = null     # set to an integer if using a tagged VLAN, e.g. 10
+
+ipv4_gateway   = "192.168.1.1"
+ipv6_gateway   = "2001:db8::1"
+
+dns_servers    = ["1.1.1.1", "2606:4700:4700::1111"]
+dns_domain     = "local"
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+storage_pool = "fast"
+
+# ── SSH ───────────────────────────────────────────────────────────────────────
+ssh_public_key = "ssh-ed25519 AAAA... you@host"
+ssh_user       = "debian"
+
+# ── Controller ────────────────────────────────────────────────────────────────
+controller = {
+  name      = "k3s-controller-01"
+  vm_id     = 200
+  ipv4_cidr = "192.168.1.10/24"
+  ipv6_cidr = "2001:db8::10/64"
+  cpu_cores = 8
+  memory_mb = 16384
+  disk_gb   = 200
+}
+
+# ── Workers ───────────────────────────────────────────────────────────────────
+workers = [
+  {
+    name         = "k3s-worker-01"
+    vm_id        = 201
+    ipv4_cidr    = "192.168.1.11/24"
+    ipv6_cidr    = "2001:db8::11/64"
+    cpu_cores    = 16
+    memory_mb    = 32768
+    disk_gb      = 200
+    data_disk_gb     = 512   # DirectPV raw disk (virtio1 → /dev/vdb)
+    longhorn_disk_gb = 512   # Longhorn data disk, XFS (virtio2 → /dev/vdc)
+  },
+  {
+    name             = "k3s-worker-02"
+    vm_id            = 202
+    ipv4_cidr        = "192.168.1.12/24"
+    ipv6_cidr        = "2001:db8::12/64"
+    cpu_cores        = 16
+    memory_mb        = 32768
+    disk_gb          = 200
+    data_disk_gb     = 512
+    longhorn_disk_gb = 512
+  },
+  {
+    name             = "k3s-worker-03"
+    vm_id            = 203
+    ipv4_cidr        = "192.168.1.13/24"
+    ipv6_cidr        = "2001:db8::13/64"
+    cpu_cores        = 16
+    memory_mb        = 32768
+    disk_gb          = 200
+    data_disk_gb     = 512
+    longhorn_disk_gb = 512
+  },
+]

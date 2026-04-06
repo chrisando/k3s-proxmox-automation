@@ -1,0 +1,122 @@
+# Keycloak CR — managed by the official Keycloak Operator (keycloak-operator app, wave 0).
+# The operator creates a Service named `keycloak-service` on port 8080.
+# HTTPRoute in gitops/networking/keycloak-route.yaml forwards sso.apps.wagner.org.za → keycloak-service:8080.
+#
+# Post-deploy setup (run once after Keycloak is healthy):
+#   1. Log in to https://sso.apps.wagner.org.za with admin credentials (K3ycloak@dmin1!)
+#   2. Create realm: homelab
+#   3. Create client: argocd
+#      - Client type: OpenID Connect, Client authentication: On
+#      - Valid redirect URIs: https://argocd.apps.wagner.org.za/auth/callback
+#      - Valid post logout redirect URIs: https://argocd.apps.wagner.org.za
+#      - Add group membership mapper: token claim name = groups, full path = off
+#      - Copy client secret → patch argocd-secret:
+#          kubectl patch secret argocd-secret -n argocd \
+#            --patch='{"stringData":{"oidc.keycloak.clientSecret":"<secret>"}}'
+#   4. Create client: argo-workflows
+#      - Client type: OpenID Connect, Client authentication: On
+#      - Valid redirect URIs: https://workflows.apps.wagner.org.za/oauth2/callback
+#      - Copy client secret → patch argo-workflows-sso secret:
+#          kubectl patch secret argo-workflows-sso -n argo \
+#            --patch='{"stringData":{"client-secret":"<secret>"}}'
+#   5. Create client: grafana
+#      - Client type: OpenID Connect, Client authentication: On
+#      - Valid redirect URIs: https://grafana.apps.wagner.org.za/login/generic_oauth
+#      - Copy client secret → patch grafana-oauth-secret:
+#          kubectl patch secret grafana-oauth-secret -n monitoring \
+#            --patch='{"stringData":{"GRAFANA_OAUTH_CLIENT_SECRET":"<secret>"}}'
+#   6. Create group: admins → assign users who should have admin access
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  instances: 1
+
+  hostname:
+    hostname: sso.apps.wagner.org.za
+
+  http:
+    httpEnabled: true
+
+  proxy:
+    headers: xforwarded
+
+  ingress:
+    enabled: false
+
+  db:
+    vendor: postgres
+    host: pgc1-rw.postgres.svc.cluster.local
+    port: 5432
+    database: keycloak
+    usernameSecret:
+      name: keycloak-postgres-secret
+      key: username
+    passwordSecret:
+      name: keycloak-postgres-secret
+      key: password
+
+  bootstrapAdmin:
+    user:
+      secret: keycloak-admin-secret
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  unsupported:
+    podTemplate:
+      spec:
+        # Init container: sparse-clone only the themes directory from the git repo,
+        # then copy it into the shared emptyDir at /themes.
+        # The main Keycloak container mounts that emptyDir at /opt/keycloak/themes,
+        # making the custom themes (wagner, ebucks) available without a custom image.
+        initContainers:
+          - name: theme-loader
+            image: alpine/git:latest
+            command:
+              - sh
+              - -c
+              - |
+                set -e
+                if [ -n "$GIT_TOKEN" ] && [ "$GIT_TOKEN" != "CHANGE_ME" ]; then
+                  REPO_URL="https://${GIT_USER}:${GIT_TOKEN}@git.wagner.org.za/homelab/k3s-ansible.git"
+                else
+                  REPO_URL="https://git.wagner.org.za/homelab/k3s-ansible.git"
+                fi
+                git clone --depth=1 --filter=blob:none --sparse "$REPO_URL" /tmp/repo
+                cd /tmp/repo
+                git sparse-checkout set gitops/apps/keycloak-instance/themes
+                cp -rv gitops/apps/keycloak-instance/themes/. /themes/
+                echo "Themes loaded:"
+                find /themes -not -name '.DS_Store' -type f
+            env:
+              - name: GIT_USER
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-readonly
+                    key: username
+                    optional: true
+              - name: GIT_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-readonly
+                    key: token
+                    optional: true
+            volumeMounts:
+              - name: keycloak-themes
+                mountPath: /themes
+        containers:
+          - name: keycloak
+            volumeMounts:
+              - name: keycloak-themes
+                mountPath: /opt/keycloak/themes
+        volumes:
+          - name: keycloak-themes
+            emptyDir: {}

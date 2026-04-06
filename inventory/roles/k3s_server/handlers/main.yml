@@ -1,0 +1,9 @@
+---
+# roles/k3s_server/handlers/main.yml
+# Triggered if the server config is updated on a running cluster.
+
+- name: Restart k3s server
+  ansible.builtin.service:
+    name: k3s
+    state: restarted
+  become: true

@@ -1,0 +1,29 @@
+# Barman Cloud plugin for CloudNativePG — deploys the plugin operator, CRDs,
+# RBAC, and sidecar injector into cnpg-system.
+# Must be wave 0 so the ObjectStore CRD exists before the postgres app applies
+# the ObjectStore CR and Cluster resources.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: barman-cloud
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://git.wagner.org.za/homelab/k3s-ansible.git
+    targetRevision: HEAD
+    path: gitops/apps/barman-cloud
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

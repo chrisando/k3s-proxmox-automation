@@ -1,0 +1,73 @@
+---
+# reset.yml — Completely removes k3s from all nodes.
+# WARNING: This will destroy all workloads and cluster state.
+#
+# Usage:
+#   ansible-playbook reset.yml
+#   ansible-playbook reset.yml --limit k3s_workers   # workers only
+
+# ── 1. Uninstall k3s agents on workers ───────────────────────────────────────
+- name: Uninstall k3s agent
+  hosts: k3s_workers
+  gather_facts: false
+  tags: [k3s_agent]
+  tasks:
+    - name: Run k3s-agent uninstall script
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-agent-uninstall.sh
+        removes: /usr/local/bin/k3s-agent-uninstall.sh
+      become: true
+      ignore_errors: true
+
+    - name: Clean up k3s agent data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/rancher
+        - /var/lib/rancher
+        - /var/lib/kubelet
+        - /run/k3s
+        - /run/flannel
+      become: true
+
+# ── 2. Uninstall k3s server on controller ────────────────────────────────────
+- name: Uninstall k3s server
+  hosts: k3s_controller
+  gather_facts: false
+  tags: [k3s_server]
+  tasks:
+    - name: Run k3s server uninstall script
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-uninstall.sh
+        removes: /usr/local/bin/k3s-uninstall.sh
+      become: true
+      ignore_errors: true
+
+    - name: Clean up k3s server data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/rancher
+        - /var/lib/rancher
+        - /var/lib/kubelet
+        - /run/k3s
+        - /run/flannel
+      become: true
+
+    - name: Remove local kubeconfig
+      ansible.builtin.file:
+        path: "{{ kubeconfig_local_path | expanduser }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      ignore_errors: true
+
+    - name: Remove local k3s token file
+      ansible.builtin.file:
+        path: "~/.k3s_token"
+        state: absent
+      delegate_to: localhost
+      become: false
+      ignore_errors: true

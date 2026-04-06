@@ -1,0 +1,75 @@
+# ArgoCD self-management Application.
+# ArgoCD manages its own Helm release — changes to this file are auto-synced.
+# Note: prune is disabled to prevent ArgoCD from deleting itself.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-cd
+    targetRevision: "9.4.*"
+    helm:
+      values: |
+        global:
+          domain: argocd.apps.wagner.org.za
+        configs:
+          params:
+            server.insecure: "true"
+          cm:
+            kustomize.buildOptions: "--enable-helm"
+            application.resourceTrackingMethod: annotation
+            url: https://argocd.apps.wagner.org.za
+            accounts.admin: apiKey, login
+            oidc.config: |
+              name: Keycloak
+              issuer: https://sso.apps.wagner.org.za/realms/homelab
+              clientID: argocd
+              clientSecret: $oidc.keycloak.clientSecret
+              requestedScopes:
+                - openid
+                - profile
+                - email
+                - groups
+              groupsClaim: groups
+          rbac:
+            policy.csv: |
+              g, admins, role:admin
+            policy.default: role:readonly
+          secret:
+            extra:
+              # Patch this after creating the argocd client in Keycloak:
+              #   kubectl patch secret argocd-secret -n argocd \
+              #     --patch='{"stringData":{"oidc.keycloak.clientSecret":"<secret>"}}'
+              oidc.keycloak.clientSecret: "ahlYwZURv1UnNg6jZedyE0nGJ1qRXcoO"
+        server:
+          service:
+            type: ClusterIP
+        controller:
+          replicas: 1
+        repoServer:
+          replicas: 1
+        applicationSet:
+          enabled: true
+          replicaCount: 1
+        notifications:
+          enabled: true
+        redis:
+          enabled: true
+        dex:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false # Never auto-prune ArgoCD itself
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

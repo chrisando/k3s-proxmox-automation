@@ -1,0 +1,57 @@
+---
+# ── k3s version ───────────────────────────────────────────────────────────────
+k3s_version: "v1.35.1+k3s1"
+k3s_api_port: 6443
+# ── Cluster networking ────────────────────────────────────────────────────────
+cluster_pod_cidr_v4: "10.42.0.0/16"
+cluster_svc_cidr_v4: "10.43.0.0/16"
+
+# ── BGP ───────────────────────────────────────────────────────────────────────
+# IP of the upstream BGP router (e.g. your router/firewall)
+bgp_router_address: "172.16.10.254"
+bgp_router_asn: 65000
+bgp_cluster_asn: 65000
+
+# ── Load-balancer IP pools (advertised via BGP) ───────────────────────────────
+lb_ip_pool_v4: "172.16.1.1/24"
+
+# ── Helm ──────────────────────────────────────────────────────────────────────
+helm_version: "v3.17.1"
+
+# ── Cilium ────────────────────────────────────────────────────────────────────
+cilium_version: "1.19.1"
+cilium_namespace: "kube-system"
+
+# ── ArgoCD / GitOps ────────────────────────────────────────────────────────────
+argocd_chart_version: "7.7.2" # Helm chart version (ArgoCD 2.13.x)
+argocd_namespace: "argocd"
+
+argo_workflows_chart_version: "0.45.7"
+argo_rollouts_chart_version: "2.38.0"
+argo_events_chart_version: "2.4.9"
+
+# URL of this git repository — update before running the argocd role.
+# ArgoCD uses this to sync Application manifests from gitops/apps/argo-suite/.
+# For a private repo, also set gitops_repo_username and gitops_repo_token.
+gitops_repo_url: "https://git.wagner.org.za/homelab/k3s-ansible.git"
+gitops_repo_revision: "HEAD"
+# gitops_repo_username: ""   # uncomment for private repos
+# gitops_repo_token: ""      # uncomment for private repos
+
+# ── Blob storage (MinIO / S3-compatible) ─────────────────────────────────────
+# Endpoint for the external MinIO instance used for DB backups (barman-cloud + MariaDB).
+# Used in: gitops/apps/databases/postgres/objectStore.yaml
+#          gitops/apps/databases/mariadb/backup.yaml
+blob_storage_endpoint: "http://192.168.1.10:9000"
+
+# ── Cluster hosts (used to populate /etc/hosts on each node) ─────────────────
+# Extend this list if you add more nodes.
+cluster_hosts:
+  - name: k3s-controller-01
+    ipv4: "172.16.10.1"
+  - name: k3s-worker-01
+    ipv4: "172.16.10.2"
+  - name: k3s-worker-02
+    ipv4: "172.16.10.3"
+  - name: k3s-worker-03
+    ipv4: "172.16.10.4"

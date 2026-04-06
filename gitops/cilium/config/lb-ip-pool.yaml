@@ -1,0 +1,10 @@
+# CiliumLoadBalancerIPPool — IP ranges Cilium assigns to LoadBalancer services.
+# Managed via GitOps; edit here to adjust the advertised LB address pools.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: cluster-lb-pool
+spec:
+  blocks:
+    - start: "172.16.1.1"
+      stop: "172.16.1.254"

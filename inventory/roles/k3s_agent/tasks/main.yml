@@ -1,0 +1,79 @@
+---
+# roles/k3s_agent/tasks/main.yml
+# Uses k3sup (run from the Ansible control machine) to join each worker.
+# k3sup SSHes into the worker, installs k3s agent, and registers it with the
+# server in one step — no config files need to be written to the remote node.
+
+# ── Ensure k3sup is on the control machine ────────────────────────────────────
+
+- name: Check if k3sup is installed locally
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3sup
+  register: k3sup_binary
+  delegate_to: localhost
+  become: false
+
+- name: Install k3sup on control machine
+  ansible.builtin.shell:
+    cmd: curl -sLS https://get.k3sup.dev | sudo sh
+  when: not k3sup_binary.stat.exists
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+# ── Read cluster token ────────────────────────────────────────────────────────
+#
+#- name: Read k3s cluster token from local file
+#  ansible.builtin.set_fact:
+#    k3s_token: "{{ lookup('ansible.builtin.file', '~/.k3s_token') | trim }}"
+#  delegate_to: localhost
+#  become: false
+
+# ── Join worker with k3sup ────────────────────────────────────────────────────
+
+- name: Check if k3s is already installed on worker
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Join worker to cluster via k3sup
+  ansible.builtin.command:
+    argv:
+      - k3sup
+      - join
+      - "--ip={{ ansible_host }}"
+      - "--server-ip={{ hostvars[groups['k3s_controller'][0]]['ansible_host'] }}"
+      - "--user={{ ansible_user }}"
+      - "--ssh-key={{ ansible_ssh_private_key_file }}"
+      - "--k3s-version={{ k3s_version }}"
+      #- "--k3s-extra-args=--node-ip={{ ansible_host }},{{ ipv6_address }}{% if k3s_node_labels is defined and k3s_node_labels %}{% for label in k3s_node_labels %} --node-label={{ label }}{% endfor %}{% endif %}"
+  when: not k3s_binary.stat.exists
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+# ── Wait for the node to be Ready ─────────────────────────────────────────────
+
+- name: Wait for worker node to appear in cluster
+  ansible.builtin.command:
+    cmd: >
+      k3s kubectl get node {{ inventory_hostname }}
+      --kubeconfig /etc/rancher/k3s/k3s.yaml
+  delegate_to: "{{ groups['k3s_controller'][0] }}"
+  become: true
+  register: node_present
+  retries: 20
+  delay: 10
+  until: node_present.rc == 0
+  changed_when: false
+
+- name: Wait for worker node to be Ready
+  ansible.builtin.command:
+    cmd: >
+      k3s kubectl wait node {{ inventory_hostname }}
+      --for=condition=Ready
+      --timeout=300s
+      --kubeconfig /etc/rancher/k3s/k3s.yaml
+  delegate_to: "{{ groups['k3s_controller'][0] }}"
+  become: true
+  changed_when: false

@@ -1,0 +1,23 @@
+# CiliumBGPAdvertisement — what Cilium announces to BGP peers.
+# Selected by CiliumBGPPeerConfig via label advertise=bgp.
+#
+# PodCIDR       → announces pod CIDRs so the upstream router can reach pods directly
+# Service/LB    → announces LoadBalancer IPs assigned from CiliumLoadBalancerIPPool
+apiVersion: cilium.io/v2alpha1
+kind: CiliumBGPAdvertisement
+metadata:
+  name: bgp-advertisements
+  labels:
+    advertise: bgp
+spec:
+  advertisements:
+    - advertisementType: PodCIDR
+
+    - advertisementType: Service
+      service:
+        addresses:
+          - LoadBalancerIP
+      # Empty selector = match ALL LoadBalancer services.
+      # Must be present in Cilium 1.17+; omitting it causes no services to be selected.
+      selector:
+        matchLabels: {}

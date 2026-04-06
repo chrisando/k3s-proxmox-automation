@@ -1,0 +1,29 @@
+# Reflector Application.
+# Mirrors Secrets and ConfigMaps across namespaces automatically.
+# Annotate a resource with reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+# and reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "ns1,ns2"
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reflector
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://emberstack.github.io/helm-charts
+    chart: reflector
+    targetRevision: "*"
+    helm:
+      values: |
+        replicaCount: 1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

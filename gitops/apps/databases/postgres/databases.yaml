@@ -1,0 +1,16 @@
+# CNPG Database resources — all application databases on the shared pgc1 cluster.
+# All databases are in the postgres namespace (same as the Cluster).
+# CNPG reconciles these after the cluster is ready; ArgoCD will retry until
+# the cluster is accepting connections.
+---
+# keycloak user databases
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: keycloak
+  namespace: postgres
+spec:
+  name: keycloak
+  owner: keycloak
+  cluster:
+    name: pgc1

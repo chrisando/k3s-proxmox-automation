@@ -1,0 +1,28 @@
+# PostgreSQL cluster — shared CNPG 3-node cluster for all homelab applications.
+# Manages: pgc1 cluster, all Database CRDs (arr apps + keycloak), backups, pgadmin.
+# Depends on cnpg-app (operator) being ready first.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://git.wagner.org.za/homelab/k3s-ansible.git
+    targetRevision: HEAD
+    path: gitops/apps/databases/postgres
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: postgres
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

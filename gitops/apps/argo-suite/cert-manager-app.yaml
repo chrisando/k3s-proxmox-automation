@@ -1,0 +1,40 @@
+# cert-manager Application.
+# Manages TLS certificates via ACME (Let's Encrypt) and other issuers.
+# Configured for DNS-01 challenges using external recursive nameservers.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: "v1.*"
+    helm:
+      values: |
+        installCRDs: true
+        replicaCount: 3
+        extraArgs:
+          - --dns01-recursive-nameservers=1.1.1.1:53,9.9.9.9:53
+          - --dns01-recursive-nameservers-only
+        podDnsPolicy: None
+        podDnsConfig:
+          nameservers:
+            - 1.1.1.1
+            - 9.9.9.9
+        config:
+          enableGatewayAPI: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,28 @@
+# App-of-Apps — rendered by Ansible, applied once to bootstrap the Argo suite.
+# ArgoCD watches gitops/apps/argo-suite/ in this repository and syncs all
+# Application manifests found there (Workflows, Rollouts, Events, ArgoCD self).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-suite
+  namespace: {{ argocd_namespace }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/managed-by: argocd
+spec:
+  project: default
+  source:
+    repoURL: "{{ gitops_repo_url }}"
+    targetRevision: "{{ gitops_repo_revision }}"
+    path: gitops/apps/argo-suite
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ argocd_namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

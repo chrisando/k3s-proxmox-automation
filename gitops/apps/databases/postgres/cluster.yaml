@@ -1,0 +1,40 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pgc1
+  namespace: postgres
+spec:
+  instances: 3
+  primaryUpdateStrategy: unsupervised
+  enableSuperuserAccess: true
+  bootstrap:
+    initdb:
+      postInitSQL:
+        # Roles are created here during initdb so they exist before any
+        # Database CRDs or applications attempt to connect.
+        - CREATE ROLE cw WITH SUPERUSER LOGIN INHERIT CONNECTION LIMIT -1
+        - CREATE ROLE keycloak WITH LOGIN INHERIT CONNECTION LIMIT -1 PASSWORD '{{ DB_KEYCLOAK_PASSWORD }}'
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: blobstorage-nas
+  storage:
+    storageClass: directpv-min-io
+    size: 100Gi
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-standard-trixie
+  managed:
+    services:
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: pgc1-lb
+              # Cilium BGP advertises this IP from the lb pool (172.16.1.0/24).
+              # Access externally: psql -h <lb-ip> -U cw -d postgres
+            spec:
+              type: LoadBalancer
+
+  postgresql:
+    pg_hba:
+      - host all all all scram-sha-256

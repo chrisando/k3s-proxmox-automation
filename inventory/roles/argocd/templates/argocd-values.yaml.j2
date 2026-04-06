@@ -1,0 +1,40 @@
+# ArgoCD Helm values — managed by Ansible, do not edit manually.
+# Helm chart: argo/argo-cd {{ argocd_chart_version }}
+
+global:
+  domain: argocd.local
+
+configs:
+  params:
+    # Run ArgoCD server without TLS (terminate TLS at ingress/LB or use port-forward)
+    server.insecure: "true"
+  cm:
+    # Allow kustomize builds with Helm
+    kustomize.buildOptions: "--enable-helm"
+    # Resource tracking method
+    application.resourceTrackingMethod: annotation
+
+server:
+  service:
+    type: ClusterIP
+
+# Single-replica ArgoCD (homelab sizing — scale up for production)
+controller:
+  replicas: 1
+
+repoServer:
+  replicas: 1
+
+applicationSet:
+  enabled: true
+  replicaCount: 1
+
+notifications:
+  enabled: true
+
+redis:
+  enabled: true
+
+# Disable built-in Dex (SSO) — enable if you add an identity provider
+dex:
+  enabled: false

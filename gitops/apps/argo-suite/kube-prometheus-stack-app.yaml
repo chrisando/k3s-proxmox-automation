@@ -1,0 +1,108 @@
+# kube-prometheus-stack Application.
+# Deploys Prometheus, Alertmanager, Grafana, node-exporter, and kube-state-metrics.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: "*"
+    helm:
+      values: |
+        crds:
+          enabled: true
+
+        # ── Prometheus ────────────────────────────────────────────────────────
+        prometheus:
+          prometheusSpec:
+            retention: 30d
+            retentionSize: 45GB
+            # Enable remote write receiver so k8s-monitoring Alloy can push metrics
+            enableRemoteWriteReceiver: true
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: longhorn
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 50Gi
+
+        # ── Grafana ───────────────────────────────────────────────────────────
+        grafana:
+          enabled: true
+          assertNoLeakedSecrets: false
+          # Override via Secret: kubectl create secret generic grafana-admin
+          #   --from-literal=admin-password=<pass> -n monitoring
+          adminPassword: "{{ GRAFANA_ADMIN_PASSWORD }}"
+          envFrom:
+            - secretRef:
+                name: grafana-oauth-secret
+          grafana.ini:
+            server:
+              root_url: https://grafana.apps.wagner.org.za
+            auth:
+              disable_login_form: false
+              oauth_auto_login: false
+            auth.generic_oauth:
+              enabled: true
+              name: Keycloak
+              allow_sign_up: true
+              client_id: grafana
+              client_secret: "{{ GRAFANA_OIDC_CLIENT_SECRET }}"
+              scopes: openid email profile roles
+              email_attribute_path: email
+              login_attribute_path: preferred_username
+              name_attribute_path: name
+              auth_url: https://sso.apps.wagner.org.za/realms/homelab/protocol/openid-connect/auth
+              token_url: https://sso.apps.wagner.org.za/realms/homelab/protocol/openid-connect/token
+              api_url: https://sso.apps.wagner.org.za/realms/homelab/protocol/openid-connect/userinfo
+              role_attribute_path: contains(groups[*], 'admins') && 'Admin' || 'Viewer'
+          sidecar:
+            datasources:
+              enabled: true
+            dashboards:
+              enabled: true
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              url: http://loki.monitoring.svc.cluster.local:3100
+              access: proxy
+              isDefault: false
+
+        # ── Alertmanager ──────────────────────────────────────────────────────
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: longhorn
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 5Gi
+
+        # ── node-exporter ─────────────────────────────────────────────────────
+        nodeExporter:
+          enabled: true
+
+        # ── kube-state-metrics ────────────────────────────────────────────────
+        kubeStateMetrics:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
