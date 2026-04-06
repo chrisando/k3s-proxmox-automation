@@ -1,7 +1,5 @@
 # README.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Purpose
 
 IaC stack for a 4-node k3s Kubernetes cluster on Proxmox, using:
